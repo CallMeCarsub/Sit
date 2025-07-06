@@ -35,6 +35,14 @@ public class InteractListener implements Listener {
         if (!e.getAction().equals(Action.RIGHT_CLICK_BLOCK)) return;
 
         Block block = e.getClickedBlock();
+        if(block == null){
+            return;
+        }
+
+        Block above = block.getRelative(BlockFace.UP);
+        if(!above.isPassable() || above.isCollidable()){
+            return;
+        }
         BlockData blockData = block.getBlockData();
 
         if (blockData instanceof Stairs) {
@@ -43,89 +51,59 @@ public class InteractListener implements Listener {
         }
         else if (blockData instanceof Slab) {
             if (!((Slab) blockData).getType().equals(Slab.Type.BOTTOM)) return;
+        }else{
+            return;
         }
 
         Player p = e.getPlayer();
 
         if (p.isSneaking()) return;
 
-        if (!p.getInventory().getItemInMainHand().getType().equals(Material.AIR)) return;
+        if (!p.getInventory().getItemInMainHand().isEmpty()) return;
 
         if (p.isInsideVehicle()) return;
 
         Sit instance = Sit.getInstance();
-        FileConfiguration config = instance.getConfig();
-        String selectedLayout = null;
+        //FileConfiguration config = instance.getConfig();
 
-        Set<String> nodes = config.getConfigurationSection("sitables").getKeys(false);
-        for (String node : nodes) {
-
-            if (config.getBoolean("sitables." + node + ".permission.require")) {
-                String permission = config.getString("sitables." + node + ".permission.name");
-                if (permission != null && !permission.equals("")) {
-                    permission = String.format(permission, node);
-                    if (!p.hasPermission(permission)) break;
-                }
-            }
-
-            String mode = config.getString("sitables." + node + ".check");
-            switch (mode) {
-                case "BLOCKDATA":
-                    Class claz;
-                    for (String clasz : config.getStringList("sitables." + node + ".list")) {
-                        try {
-                            claz = Class.forName(clasz);
-                        }
-                        catch (ClassNotFoundException ex) {
-                            throw new RuntimeException("class " + clasz + " doesn't exists.");
-                        }
-                        if (claz.isInstance(blockData)) {
-                            selectedLayout = node;
-                            break;
-                        }
-                    }
-                    break;
-                case "BLOCKS":
-                    for (String material : config.getStringList("sitables." + node + ".list")) {
-                        if (block.getType().toString().equalsIgnoreCase(material)) {
-                            selectedLayout = node;
-                            break;
-                        }
-                    }
-                    break;
-            }
-            if (selectedLayout != null) break;
-        }
-        if (selectedLayout == null) return;
 
         e.setCancelled(true);
 
         Location loc = block.getLocation();
 
-        double adderX = config.getDouble("sitables." + selectedLayout + ".offsets.x");
-        double adderY = config.getDouble("sitables." + selectedLayout + ".offsets.y");
-        double adderZ = config.getDouble("sitables." + selectedLayout + ".offsets.z");
+        double adderX = 0.5;
+        double adderY = 0.5;
+        double adderZ = 0.5;
 
-        loc.setX(loc.getX() + adderX);
-        loc.setY(loc.getY() + adderY);
-        loc.setZ(loc.getZ() + adderZ);
 
         if (blockData instanceof Directional) {
             BlockFace facing = ((Directional) blockData).getFacing();
             switch (facing) {
-                case SOUTH: loc.setYaw(180);
+                case SOUTH:
+                    loc.setYaw(180);
+                    adderZ -= 0.1;
                     break;
-                case WEST: loc.setYaw(270);
+                case WEST:
+                    adderX += 0.1;
+                    loc.setYaw(270);
                     break;
-                case EAST: loc.setYaw(90);
+                case EAST:
+                    adderX -= 0.1;
+                    loc.setYaw(90);
                     break;
-                case NORTH: loc.setYaw(0);
+                case NORTH:
+                    adderZ += 0.1;
+                    loc.setYaw(0);
                     break;
             }
         }
         else {
             loc.setYaw(p.getLocation().getYaw()+180);
         }
+
+        loc.setX(loc.getX() + adderX);
+        loc.setY(loc.getY() + adderY);
+        loc.setZ(loc.getZ() + adderZ);
 
         if (blockData instanceof Stairs) {
             Stairs.Shape shape = ((Stairs) blockData).getShape();
@@ -137,30 +115,28 @@ public class InteractListener implements Listener {
             }
         }
 
-        String entityType = config.getString("sitables." + selectedLayout + ".entity.type");
         // create final value to use in lambda
-        final String layout = selectedLayout;
-        Entity entity = p.getWorld().spawn(loc, EntityType.valueOf(entityType).getEntityClass(), (stair -> {
-            stair.setPersistent(false);
-            if (stair instanceof Attributable) {
-                Attributable attributable = (Attributable) stair;
+        Entity entity = p.getWorld().spawn(loc, EntityType.ITEM_DISPLAY.getEntityClass(), (seat -> {
+            seat.setPersistent(false);
+            if (seat instanceof Attributable attributable) {
                 // set movement speed to 0 to entity to not move when steering item(carrot on a stick) held
-                attributable.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED).setBaseValue(0);
-
-                if (stair instanceof Pig && config.getBoolean("sitables." + layout + ".entity.saddle")) {
-                    ((Pig)stair).setSaddle(true);
-                }
+                attributable.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(0);
+                attributable.getAttribute(Attribute.MAX_HEALTH).setBaseValue(0);
             }
+            if(seat instanceof ItemDisplay itemDisplay){
+                itemDisplay.setViewRange(0);
+            }
+            seat.setInvisible(true);
+            seat.setInvulnerable(true);
+            seat.setSilent(true);
+            seat.setMetadata("stair", new FixedMetadataValue(instance, true));
 
-            stair.setInvulnerable(true);
-            stair.setSilent(true);
-            stair.setMetadata("stair", new FixedMetadataValue(instance, true));
-
-            if (stair instanceof LivingEntity) {
-                LivingEntity livingEntity = (LivingEntity) stair;
-                livingEntity.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 99999, 1, false, false));
-                //livingEntity.setInvisible(true);
+            if (seat instanceof LivingEntity) {
+                LivingEntity livingEntity = (LivingEntity) seat;
+                livingEntity.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, -1, 1, false, false));
+                livingEntity.setInvisible(true);
                 livingEntity.setAI(false);
+                livingEntity.setHealth(0);
             }
         }));
 

@@ -15,7 +15,7 @@ public class SitCommand extends Command {
 
     @Override
     public boolean execute(CommandSender sender, String command, String[] args) {
-        if (sender.hasPermission("sit.command"))
+        if (sender.hasPermission("sit.admin"))
         {
             if (args.length == 0) {
                 sender.sendMessage("/sit reload");
